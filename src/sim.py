@@ -4,7 +4,6 @@ from types import SimpleNamespace
 import numpy as np
 import pybullet as p
 from airobot import Robot
-from multiprocessing.pool import ThreadPool
 from airobot.arm.ur5e_pybullet import UR5ePybullet as UR5eArm
 from airobot.utils.common import clamp
 from airobot.utils.common import euler2quat, quat2euler, euler2rot
@@ -14,7 +13,6 @@ from utils.logger import logger
 from scipy.spatial.transform import Rotation as R
 from PIL import Image
 import argparse
-
 
 np.set_string_function(
     lambda x: repr(np.round(x, 4))
@@ -37,45 +35,45 @@ class URRobotGym:
         controller_type="gt",
         record=True,
     ):
-        self.gui = gui
+        self.gui = gui  # gui condition
         try:
             self.robot = Robot(
                 "ur5e_2f140",
                 # Have to keep openGL render off for the texture to work
                 pb_cfg={"gui": gui, "realtime": False, "opengl_render": False},
-            )
-            assert p.isConnected(self.robot.pb_client.get_client_id())
+            ) # initialising the robot
+            assert p.isConnected(self.robot.pb_client.get_client_id()) # saying the robot is connected
         except:
             self.robot = Robot(
                 "ur5e_2f140",
                 pb_cfg={"gui": gui, "realtime": False, "opengl_render": False},
             )
 
+        #initialising the camera and arm
         self.cam: RGBDCameraPybullet = self.robot.cam
         self.arm: UR5eArm = self.robot.arm
-        self.pb_client = self.robot.pb_client
-        self.config_vals_set(belt_init_pose, belt_vel, grasp_time)
-        self.reset()
-        self.record_mode = record
-        self.depth_noise = config.get("dnoise", 0)
-        self.controller_type = controller_type
+        self.pb_client = self.robot.pb_client #pybullet client
+        self.config_vals_set(belt_init_pose, belt_vel, grasp_time) # initialising the variables
+        self.reset() # resetting the environment
+        self.record_mode = record #need to store imgs or not
+        self.depth_noise = config.get("dnoise", 0) #depth noise 0
+        self.controller_type = controller_type # defining controller type
         self.vs_mode = bool(controller_type in ["rtvs", "ibvs"])
-        self._set_controller()
-        self._img_save_pool = ThreadPool(3)
+        self._set_controller() # using the particular controller
 
     def config_vals_set(self, belt_init_pose, belt_vel, grasp_time=4):
         self.step_dt = 0.01
         self.ground_lvl = 0.851
-        p.setTimeStep(self.step_dt)
+        p.setTimeStep(self.step_dt) # timestep to repeat
         self._action_repeat = 4
-        self._ee_pos_scale = self.step_dt * self._action_repeat
+        self._ee_pos_scale = self.step_dt * self._action_repeat # scale of a timestep
 
         self.cam_link_anchor_id = 22  #  or ('ur5_ee_link-gripper_base') link 10
         self.cam_ori = np.deg2rad([-105, 0, 0])
         # arm config 1
         self.cam_pos_delta = np.array([0, -0.2, 0.02])
         self.ee_home_pos = [0.5, -0.13, 0.9]
-        self.ee_home_ori = np.deg2rad([-180, 0, -180])
+        self.ee_home_ori = np.deg2rad([-180, 0, -180]) # degree to radians
         self.arm._home_position = [-0.0, -1.66, -1.92, -1.12, 1.57, 1.57]
         self.arm._home_position = self.arm.compute_ik(
             self.ee_home_pos, self.ee_home_ori
@@ -87,27 +85,24 @@ class URRobotGym:
         # self.ee_home_pos = [0.48, -0.3, 0.99]
         # self.arm._home_position = [-0.75, -2.95, -0.59, -2.74, 2.39, -0.0]
 
-        self.cam_to_gt_R = R.from_euler("xyz", self.cam_ori)
+        self.cam_to_gt_R = R.from_euler("xyz", self.cam_ori) # euler angles xyz 
         self.ref_ee_ori = self.ee_home_ori[:]
         self.grasp_time = grasp_time
         self.post_grasp_duration = 1
 
-        self.ground = SimpleNamespace()
-        self.ground.init_pos = [0, 0, self.ground_lvl - 0.005]
-        self.ground.scale = 0.1
-
-        self.belt = SimpleNamespace()
+        self.belt = SimpleNamespace() #object to store attributes
+        # self.belt.size = np.array([60, 60, 0.001])
         self.belt.vel = np.array(belt_vel)
         self.belt.vel[2] = 0
         self.belt.init_pos = np.array(belt_init_pose)
         self.belt.init_pos[2] = self.ground_lvl
-        self.belt.color = [0, 0, 0, 0]
+        self.belt.texture_name = "../data/fluid.png"
         self.belt.scale = 0.1
 
         self.wall = SimpleNamespace()
         self.wall.init_pos = self.belt.init_pos + [0, 1, 0]
         self.wall.ori = np.deg2rad([90, 0, 0])
-        self.wall.texture_name = "../data/cream.png"
+        self.wall.texture_name = "../data/stones.png"
         self.wall.scale = 1
 
         self.table = SimpleNamespace()
@@ -119,10 +114,10 @@ class URRobotGym:
         self.box.init_pos = np.array([*self.belt.init_pos[:2], 0.9])
         self.box.init_ori = np.deg2rad([0, 0, 90])
         # self.box.init_ori = [0, 0, np.arctan2(self.belt.vel[1], self.belt.vel[0])]
-        self.box.color = [0, 1, 0, 1]
+        self.box.color = [1, 0, 0, 1]
 
     def _set_controller(self):
-        logger.info(controller_type=self.controller_type)
+        logger.info(controller_type=self.controller_type) # defining controller and calling it's function
         if self.controller_type == "rtvs":
             from controllers.rtvs import Rtvs, RTVSController
 
@@ -134,8 +129,7 @@ class URRobotGym:
                 self._ee_pos_scale,
                 Rtvs("./dest.png", self.cam.get_cam_int()),
                 self.cam_to_gt_R,
-                max_speed=0.7,
-            )
+            ) 
         elif self.controller_type == "ibvs":
             from controllers.ibvs import IBVSController, IBVSHelper
 
@@ -161,30 +155,28 @@ class URRobotGym:
                 self._ee_pos_scale,
             )
 
-    def get_pos(self, obj):
+    def get_pos(self, obj):  # depending on the type of object, pybullet function needs different attributes
         if isinstance(obj, int):
             obj_id = obj
         elif hasattr(obj, "id"):
             obj_id = obj.id
         return self.pb_client.get_body_state(obj_id)[0]
 
-    def reset(self):
-        p.configureDebugVisualizer(p.COV_ENABLE_RENDERING, 0)
+    def reset(self):  # restting the whole scene
+        p.configureDebugVisualizer(p.COV_ENABLE_RENDERING, 0) # configuring given gui
         p.resetDebugVisualizerCamera(
             cameraTargetPosition=[0, 0, 0],
             cameraDistance=2,
             cameraPitch=-40,
             cameraYaw=90,
-        )
+        ) # reset camera parameters
         change_friction = lambda id, lf=0, sf=0: p.changeDynamics(
             bodyUniqueId=id, linkIndex=-1, lateralFriction=lf, spinningFriction=sf
-        )
+        ) # info about mass, friction, center of mass etc.
 
         self.textures = {}
-        def apply_col_texture(obj):
-            assert (hasattr(obj, "color") ^ hasattr(obj, "texture_name"))
-            if hasattr(obj, "color"):
-                return p.changeVisualShape(obj.id, -1, rgbaColor=obj.color)
+
+        def apply_texture(obj):  # applying texture first by loading
             if obj.texture_name not in self.textures:
                 tex_id = p.loadTexture(obj.texture_name)
                 assert tex_id >= 0
@@ -192,21 +184,16 @@ class URRobotGym:
             else:
                 tex_id = self.textures[obj.texture_name]
             obj.texture_id = tex_id
-            p.changeVisualShape(obj.id, -1, textureUniqueId=tex_id)
+            p.changeVisualShape(obj.id, -1, textureUniqueId=tex_id) # After loading changing the env for particular object id
 
-
-        self.arm.go_home(ignore_physics=True)
-        self.arm.eetool.open(ignore_physics=True)
-
-        self.ground.id = p.loadURDF(
-            "plane.urdf", self.ground.init_pos, globalScaling=self.ground.scale
-        )
+        self.arm.go_home(ignore_physics=True) #rest to home position
+        self.arm.eetool.open(ignore_physics=True) # 
 
         self.belt.id: int = p.loadURDF(
             "plane.urdf", self.belt.init_pos, globalScaling=self.belt.scale
-        )
-        change_friction(self.belt.id, 2, 2)
-        apply_col_texture(self.belt)
+        ) #load URDF file
+        change_friction(self.belt.id, 2, 2) #changing friction for belt
+        apply_texture(self.belt) # applying texture on belt
 
         self.wall.id: int = p.loadURDF(
             "plane.urdf",
@@ -214,7 +201,7 @@ class URRobotGym:
             euler2quat(self.wall.ori),
             globalScaling=self.wall.scale,
         )
-        apply_col_texture(self.wall)
+        apply_texture(self.wall)
 
         self.box_id = self.robot.pb_client.load_geom(
             "box",
@@ -238,43 +225,43 @@ class URRobotGym:
         # exit(0)
 
     @property
-    def conveyor_level(self):
+    def conveyor_level(self): # above ground level
         return self.ground_lvl
 
     @property
-    def sim_time(self):
-        return self.step_cnt * self.step_dt
+    def sim_time(self): # till how much stimulation is being run
+        return self.step_cnt * self.step_dt 
 
-    def step(self, action):
+    def step(self, action): # steps to be taken for each step.
         self.apply_action(action)
         self.belt_poses.append(self.get_pos(self.belt))
 
     def apply_action(self, action, use_belt=True):
-        if not isinstance(action, np.ndarray):
+        if not isinstance(action, np.ndarray): # if type is not array convert it into one.
             action = np.array(action).flatten()
         if action.size != 5:
             raise ValueError(
                 "Action should be [d_x, d_y, d_z, angle, open/close gripper]."
-            )
-        pos = self.ee_pos + action[:3] * self._ee_pos_scale
-        pos[2] = max(pos[2], 0.01 + self.conveyor_level)
+            ) # ARGS error
+        pos = self.ee_pos + action[:3] * self._ee_pos_scale # end effector pos + d_x*scale + dy*scale + dz*scale
+        pos[2] = max(pos[2], 0.01 + self.conveyor_level) # for z taks max of pos[2], conveyer level
 
         # ## NOTE: OVERRIDING EE_ORI for now . Hence action[3] is ignored !!! ####
         # self.gripper_ori = ang_in_mpi_ppi(np.deg2rad(action[3]))
         # rot_vec = np.array([0, 0, 1]) * self.gripper_ori
         # rot_quat = rotvec2quat(rot_vec)
-        # ee_ori = quat_multiply(self.ref_ee_ori, rot_quat)
+        # ee_ori = quat_multipl y(self.ref_ee_ori, rot_quat)
         # ee_ori = R.from_euler("xyz", [-np.pi / 2, np.pi, 0]).as_quat()
         # ee_ori = R.from_euler("xyz", np.deg2rad([-75, 180, 0])).as_quat()
-        jnt_pos = self.robot.arm.compute_ik(pos, ori=self.ee_home_ori)
-        gripper_ang = self._scale_gripper_angle(action[4])
+        jnt_pos = self.robot.arm.compute_ik(pos, ori=self.ee_home_ori) # do ik on pos and ee home position to find next position.
+        gripper_ang = self._scale_gripper_angle(action[4]) # scaling gripper angle with angle provided
 
         for step in range(self._action_repeat):
             self.robot.arm.set_jpos(jnt_pos, wait=False)
-            self.robot.arm.eetool.set_jpos(gripper_ang, wait=False)
+            self.robot.arm.eetool.set_jpos(gripper_ang, wait=False) # setting arm conditions
             if use_belt:
-                p.resetBaseVelocity(self.belt.id, self.belt.vel)
-            self.robot.pb_client.stepSimulation()
+                p.resetBaseVelocity(self.belt.id, self.belt.vel) # if using belt, move belt
+            self.robot.pb_client.stepSimulation() #one step using forward dynamics
             self.step_cnt += 1
         # logger.debug(action_target = pos, action_result = self.ee_pos, delta=(pos-self.ee_pos))
 
@@ -301,10 +288,10 @@ class URRobotGym:
 
     @property
     def obj_pos(self):
-        return self.pb_client.get_body_state(self.box_id)[0]
+        return self.pb_client.get_body_state(self.box_id)[0] # get the state of body like center
 
     @property
-    def obj_pos_8(self):
+    def obj_pos_8(self): # state of all 4 corners
         pos, quat = self.pb_client.get_body_state(self.box_id)[:2]
         euler_z = quat2euler(quat)[2]
         rotmat = euler2rot([0, 0, euler_z])
@@ -326,13 +313,13 @@ class URRobotGym:
 
     @property
     def cam_pos(self):
-        ee_base_pos = p.getLinkState(self.arm.robot_id, self.cam_link_anchor_id)[0]
+        ee_base_pos = p.getLinkState(self.arm.robot_id, self.cam_link_anchor_id)[0] # giving world position of arm
         return ee_base_pos + self.cam_pos_delta
 
     def render(
         self, get_rgb=True, get_depth=True, get_seg=True, for_video=True, noise=None
     ):
-        if for_video:
+        if for_video:  # setting camera
             self.robot.cam.setup_camera(
                 focus_pt=[0, 0, 0.7], dist=1.5, yaw=90, pitch=-40, roll=0
             )
@@ -344,24 +331,10 @@ class URRobotGym:
         p.addUserDebugLine(cam_dir, cam_eye, [0, 1, 0], 3, 0.5)
         rgb, depth, seg = self.cam.get_images(
             get_rgb, get_depth, get_seg, shadow=0, lightDirection=[0, 0, 2]
-        )
-        if noise is not None:
+        ) # parameters
+        if noise is not None: # removing noise
             depth *= np.random.normal(loc=1, scale=noise, size=depth.shape)
         return rgb, depth, seg, cam_eye
-
-    @staticmethod
-    def _save_img(rgb, t):
-        name = f"{str(int(t)).zfill(5)}.png"
-        last_path = "imgs/_last.png"
-        Image.fromarray(rgb).save(f"imgs/{name}")
-        if os.path.exists(last_path):
-            os.remove(last_path)
-        os.symlink(name, last_path)
-
-    def save_img(self, rgb, t):
-        if not self.record_mode:
-            return
-        self._img_save_pool.apply_async(self._save_img, (rgb, t))
 
     def run(self):
         state = {
@@ -384,7 +357,7 @@ class URRobotGym:
             },
         }
 
-        def add_to_state(val, *args):
+        def add_to_state(val, *args): # adding values of parameters in state
             if isinstance(val, list) or (
                 isinstance(val, np.ndarray) and val.dtype == np.float64
             ):
@@ -395,14 +368,14 @@ class URRobotGym:
                 list_val = list_val[arg]
             list_val.append(val)
 
-        def multi_add_to_state(*args):
+        def multi_add_to_state(*args): # multiple addition at a time
             for arg in args:
                 add_to_state(*arg)
 
         logger.info("Run start", obj_pose=self.obj_pos)
-        time_steps = 1 / (self.step_dt * self._action_repeat)
+        time_steps = 1 / (self.step_dt * self._action_repeat) # timestep
 
-        if self.record_mode:
+        if self.record_mode: #if need to record then need to go to imgs directory
             shutil.rmtree("imgs", ignore_errors=True)
             os.makedirs("imgs", exist_ok=True)
 
@@ -428,10 +401,11 @@ class URRobotGym:
                 (pcd_3d, "pcd_3d"),
                 (pcd_rgb, "pcd_rgb"),
                 (self.cam.get_cam_ext(), "cam_ext"),
-                (self.cam.get_cam_int(), "cam_int"),
             )
-            self.save_img(rgb, t)
-            if not self.vs_mode:
+            if self.record_mode:
+                Image.fromarray(rgb).save("imgs/" + str(int(t)).zfill(5) + ".png")
+                (self.cam.get_cam_int(), "cam_int"),
+            if not self.vs_mode: # storing the action taken by the controller
 
                 action = self.gt_controller.get_action(
                     self.ee_pos, self.obj_pos, self.belt.vel, self.sim_time
@@ -441,7 +415,7 @@ class URRobotGym:
                     rgb, depth, self.sim_time, self.ee_pos
                 )
 
-            add_to_state(action, "action")
+            add_to_state(action, "action") # add that action to generate new state
             logger.info(time=self.sim_time, action=action)
             logger.info(
                 ee_pos=self.ee_pos,
@@ -457,7 +431,7 @@ class URRobotGym:
 
 
 def simulate(init_cfg, gui, controller, record):
-    env = URRobotGym(*init_cfg, gui=gui, controller_type=controller, record=record)
+    env = URRobotGym(*init_cfg, gui=gui, controller_type=controller, record=record) #initialise
     return env.run()
 
 
@@ -483,9 +457,8 @@ def main():
         np.random.seed(args.seed)
 
     init_cfg = ([0.45, -0.05, 0.851], [0, 0, 0])
-    # init_cfg = ([0.45, -0.05, 0.851], [0.1, 0, 0])
     if args.random:
-        init_cfg[1] = get_random_config()[1]
+        init_cfg = get_random_config()[:2]
 
     return simulate(init_cfg, args.gui, args.controller, args.record)
 

@@ -33,7 +33,7 @@ class GTController(Controller):
         # arm config 2
         # cur_target[1] += 0.06
         if cur_t <= 0.8 * self.grasp_time:
-            cur_target[2] += 0.04
+            cur_target[2] += 0.0
         dirn = cur_target - ee_pos
         speed = min(self.max_speed, 10 * np.linalg.norm(dirn))
         vel = speed * (dirn / np.linalg.norm(dirn))

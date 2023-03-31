@@ -14,6 +14,7 @@ from scipy.spatial.transform import Rotation as R
 from utils.img_saver import ImageSaver
 from utils.logger import logger
 from utils.sim_utils import get_random_config
+from ycb_objects.pybullet_object_models import ycb_objects
 
 np.set_string_function(
     lambda x: repr(np.round(x, 4))
@@ -73,8 +74,18 @@ class URRobotGym:
         self.cam_ori = np.deg2rad([-105, 0, 0])
         # arm config 1
         self.cam_pos_delta = np.array([0, -0.2, 0.02])
+        self.ee_home_pos = np.array([0.4654089, -0.04216372, 0.94363666])
         self.ee_home_pos = [0.5, -0.13, 0.9]
-        self.ee_home_ori = np.deg2rad([-180, 0, -180])
+        self.ee_home_ori = R.from_matrix(
+            np.array(
+                [
+                    [-0.99973744, 0.02194682, 0.00659113, 0.44288614],
+                    [0.00233272, -0.18866691, 0.9820384, -0.14365552],
+                    [0.02279615, 0.9817959, 0.18856616, 0.92463696],
+                    [0.0, 0.0, 0.0, 1.0],
+                ]
+            )[:3, :3]
+        ).as_euler("xyz")
         self.arm._home_position = [-0.0, -1.66, -1.92, -1.12, 1.57, 1.57]
         self.arm._home_position = self.arm.compute_ik(
             self.ee_home_pos, self.ee_home_ori
@@ -124,10 +135,11 @@ class URRobotGym:
 
         self.box = SimpleNamespace()
         self.box.size = np.array([0.03, 0.06, 0.06])
-        self.box.init_pos = np.array([*self.belt.init_pos[:2], 0.9])
+        self.box.init_pos = np.array([*self.belt.init_pos[:2], 0.85])
         self.box.init_ori = np.deg2rad([0, 0, 90])
         # self.box.init_ori = [0, 0, np.arctan2(self.belt.vel[1], self.belt.vel[0])]
-        self.box.color = [0, 1, 0, 1]
+        # self.box.color = [0, 1, 0, 1]
+        self.box.texture_name = "../data/cream.png"
 
     def _set_controller(self):
         logger.info(controller_type=self.controller_type)
@@ -252,14 +264,26 @@ class URRobotGym:
         )
         apply_col_texture(self.wall)
 
-        self.box_id = self.robot.pb_client.load_geom(
-            "box",
-            size=(self.box.size / 2).tolist(),
-            mass=1,
-            base_pos=self.box.init_pos,
-            rgba=self.box.color,
-            base_ori=euler2quat(self.box.init_ori),
+        # self.box_id = self.robot.pb_client.load_geom(
+        #     "box",
+        #     size=(self.box.size / 2).tolist(),
+        #     mass=1,
+        #     base_pos=self.box.init_pos,
+        #     rgba=self.box.color,
+        #     base_ori=euler2quat(self.box.init_ori),
+        # )
+        self.box_id = p.loadURDF(
+            os.path.join(ycb_objects.getDataPath(), "YcbChipsCan", "model.urdf"),
+            basePosition=self.box.init_pos,
+            baseOrientation=euler2quat(self.box.init_ori),
+            globalScaling=0.5,
         )
+        self.box.id = self.box_id
+        apply_col_texture(self.box)
+        del self.box.texture_name
+        self.box.color = [0, 1, 0, 1]
+        apply_col_texture(self.box)
+
         ee_pos, _, _, ee_euler = self.arm.get_ee_pose()
         logger.info(init_belt_pose=self.get_pos(self.belt), belt_vel=self.belt.vel)
         # to make arm transparent (not works on TINY_RENDERER when getting img)
@@ -302,6 +326,7 @@ class URRobotGym:
         # ee_ori = quat_multiply(self.ref_ee_ori, rot_quat)
         # ee_ori = R.from_euler("xyz", [-np.pi / 2, np.pi, 0]).as_quat()
         # ee_ori = R.from_euler("xyz", np.deg2rad([-75, 180, 0])).as_quat()
+
         jnt_pos = self.robot.arm.compute_ik(pos, ori=self.ee_home_ori)
         gripper_ang = self._scale_gripper_angle(action[4])
 
@@ -451,6 +476,7 @@ class URRobotGym:
         grasping = False
         grasping_success = False
         t = 0
+        pre_grasping_height = self.obj_pos[2]
         while t < int(np.ceil(time_steps * total_sim_time)):
             rgb, depth, seg, cam_eye = self.render(
                 for_video=False, noise=self.depth_noise
@@ -502,6 +528,7 @@ class URRobotGym:
             action, err = self.controller.get_action(observations)
             if not grasping and self.controller.ready_to_grasp:
                 logger.debug("Grasping start")
+                pre_grasping_height = self.obj_pos[2]
                 grasping = True
                 total_sim_time = self.sim_time + self.post_grasp_duration
                 self.grasp_time = self.sim_time
@@ -519,7 +546,7 @@ class URRobotGym:
             if (
                 grasping
                 and not grasping_success
-                and ((self.obj_pos - self.belt.init_pos - self.box.size / 2)[2] > 0.02)
+                and self.obj_pos[2] - pre_grasping_height > 0.02
             ):
                 grasping_success = True
                 logger.info("Grasping success")

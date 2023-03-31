@@ -10,7 +10,7 @@ from .calculate_flow import FlowNet2Utils
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"  # see issue #152
 # np.random.seed(0)
 # warnings.filterwarnings("ignore")
-# torch.backends.cudnn.deterministic = True
+torch.backends.cudnn.deterministic = True
 torch.backends.cudnn.benchmark = True
 # torch.manual_seed(0)
 # torch.autograd.set_detect_anomaly(True)

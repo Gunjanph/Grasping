@@ -52,9 +52,10 @@ class Evaluate:
 
     def set_metrics(self):
         for ct in self.ct_s:
-            self.metrics[ct].grasp_cutoff = (
-                self.data[ct]["t"].index(self.data[ct]["grasp_time"]) + 1
-            )
+            for i in range(len(self.data[ct]["t"])):
+                if self.data[ct]["t"][i] > self.data[ct]["grasp_time"]:
+                    break
+            self.metrics[ct].grasp_cutoff = i + 1
             self.set_iou_errors(ct)
             self.set_trajectory_length(ct)
             self.set_time_taken(ct)

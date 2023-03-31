@@ -3,10 +3,23 @@ import os
 import shutil
 
 import numpy as np
+from multiprocessing import Process, Queue
 
-from sim import simulate
-from utils.sim_utils import get_random_config
 
+def task(mixed_arg):
+    from sim import simulate
+    args, controller, queue = mixed_arg
+    init_cfg = args.init_cfg
+    sim_data = simulate(
+            init_cfg, False, controller, flowdepth=args.flowdepth
+        )
+    if args.video:
+        os.system("./mkvideo.sh")
+        os.system("mv video.mp4 ../results/video_{}.mp4".format(controller))
+        os.system(
+            "mv video_flow.mp4 ../results/video_flow_{}.mp4".format(controller)
+        )
+    queue.put(sim_data)
 
 def main():
     parser = argparse.ArgumentParser()
@@ -24,6 +37,7 @@ def main():
         np.random.seed(args.seed)
 
     if args.random:
+        from utils.sim_utils import get_random_config
         init_cfg = get_random_config()
 
     shutil.rmtree("../results", ignore_errors=True)
@@ -34,16 +48,14 @@ def main():
         "flowdepth": args.flowdepth,
         "results": {},
     }
+    args.data = data
+    args.init_cfg = init_cfg
     for controller in args.controllers:
-        data["results"][controller] = simulate(
-            init_cfg, False, controller, flowdepth=args.flowdepth
-        )
-        if args.video:
-            os.system("./mkvideo.sh")
-            os.system("mv video.mp4 ../results/video_{}.mp4".format(controller))
-            os.system(
-                "mv video_flow.mp4 ../results/video_flow_{}.mp4".format(controller)
-            )
+        q = Queue()
+        p = Process(target=task, args=((args, controller, q),))
+        p.start()
+        data["results"][controller] = q.get()
+        p.join()
 
     np.savez_compressed("../results/data.npz", **data)
 

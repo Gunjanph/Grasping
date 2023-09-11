@@ -33,7 +33,7 @@ class OursController(Controller):
         self.real_grasp_time = None
 
     def _get_ee_val(self, obj_vel, rgb_img, depth_img, prev_rgb_img):
-        ee_vel_cam, err = self.ours.get_vel(
+        ee_vel_cam, err, mse = self.ours.get_vel(
             rgb_img, 0*obj_vel, depth=depth_img, pre_img_src=prev_rgb_img
         )
         ee_vel_cam = ee_vel_cam[:3]
@@ -51,8 +51,9 @@ class OursController(Controller):
             pred_vel=vel,
             pred_speed=np.linalg.norm(vel),
             photo_err=err,
+            mse_err=mse
         )
-        return vel
+        return vel, mse
 
     def get_action(self, observations: dict):
         rgb_img = observations["rgb_img"]
@@ -64,9 +65,10 @@ class OursController(Controller):
         obj_vel_cam = self.cam_to_gt_R.inv().apply(obj_vel)
 
         action = np.zeros(5)
+        mse = 0
         if cur_t <= self.grasp_time and not self.ready_to_grasp:
             action[4] = -1
-            action[:3] = self._get_ee_val(obj_vel_cam, rgb_img, depth_img, prev_rgb_img)
+            action[:3], mse = self._get_ee_val(obj_vel_cam, rgb_img, depth_img, prev_rgb_img)
             if cur_t <= 0.6 * self.grasp_time:
                 tpos = self._action_vel_to_target_pos(action[:3], ee_pos)
                 # tpos[2] = max(tpos[2], self.conveyor_level + self.box_size[2] + 0.005)
@@ -76,11 +78,11 @@ class OursController(Controller):
             if self.real_grasp_time is None:
                 self.real_grasp_time = cur_t
             if cur_t <= self.real_grasp_time + 0.5:
-                action[:3] = self._get_ee_val(
+                action[:3], mse = self._get_ee_val(
                     obj_vel_cam, rgb_img, depth_img, prev_rgb_img
                 )
             elif cur_t <= self.real_grasp_time + 1.0:
                 action[:3] = [0, 0, 0.5]
             else:
                 action[:3] = self.post_grasp_dest - ee_pos
-        return action, self.ours.get_iou(rgb_img)
+        return action, self.ours.get_iou(rgb_img), mse

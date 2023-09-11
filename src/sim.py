@@ -5,6 +5,7 @@ from types import SimpleNamespace
 
 import numpy as np
 import pybullet as p
+from PIL import Image
 from airobot import Robot
 from airobot.arm.ur5e_pybullet import UR5ePybullet as UR5eArm
 from airobot.sensor.camera.rgbdcam_pybullet import RGBDCameraPybullet
@@ -31,7 +32,7 @@ class URRobotGym:
         self,
         belt_init_pose,
         belt_vel,
-        grasp_time=4,
+        grasp_time=2,
         gui=False,
         config: dict = {},
         controller_type="gt",
@@ -53,6 +54,7 @@ class URRobotGym:
             )
 
         self.cam: RGBDCameraPybullet = self.robot.cam
+        self.cam2: RGBDCameraPybullet = self.robot.cam
         self.arm: UR5eArm = self.robot.arm
         self.pb_client = self.robot.pb_client
         self.config_vals_set(belt_init_pose, belt_vel, grasp_time)
@@ -68,14 +70,15 @@ class URRobotGym:
         self.ground_lvl = 0.851
         p.setTimeStep(self.step_dt)
         self._action_repeat = 10
+        self.time_cam2 = 0
         self._ee_pos_scale = self.step_dt * self._action_repeat
 
         self.cam_link_anchor_id = 22  #  or ('ur5_ee_link-gripper_base') link 10
         self.cam_ori = np.deg2rad([-105, 0, 0])
         # arm config 1
-        self.cam_pos_delta = np.array([0, -0.2, 0.02])
-        self.ee_home_pos = np.array([0.4654089, -0.04216372, 0.94363666])
-        self.ee_home_pos = [0.5, -0.13, 0.9]
+        self.cam_pos_delta = np.array([0, -0.2, 0.04])
+        self.ee_home_pos = np.array([0.4654089, -0.74216372, 0.94363666])
+        self.ee_home_pos = [0.2, -0.13, 0.96]
         self.ee_home_ori = R.from_matrix(
             np.array(
                 [
@@ -90,12 +93,18 @@ class URRobotGym:
         self.arm._home_position = self.arm.compute_ik(
             self.ee_home_pos, self.ee_home_ori
         )
+        self.ee_home_ori = np.deg2rad([160, 0, -180])
 
         # arm config 2
         # self.cam_pos_delta = np.array([0, -0.08, 0.05])
         # self.ee_home_ori = np.deg2rad([90, 0, -180])
         # self.ee_home_pos = [0.48, -0.3, 0.99]
         # self.arm._home_position = [-0.75, -2.95, -0.59, -2.74, 2.39, -0.0]
+        
+        self.cam_ori2 = np.deg2rad([-105, 0, 0])
+        # arm config 1
+        self.cam_pos_delta2 = np.array([0,-5.2, 0.04])
+        self.cam_to_gt_R2 = R.from_euler("xyz", self.cam_ori2)
 
         self.cam_to_gt_R = R.from_euler("xyz", self.cam_ori)
         self.ref_ee_ori = self.ee_home_ori[:]
@@ -156,6 +165,20 @@ class URRobotGym:
                 self.cam_to_gt_R,
                 max_speed=0.7,
             )
+            
+        elif self.controller_type == "deepmpc":
+            from controllers.rtvs import DeepMpc, DeepMpcController
+
+            self.controller = DeepMpcController(
+                self.grasp_time,
+                self.ee_home_pos,
+                self.box.size,
+                self.conveyor_level,
+                self._ee_pos_scale,
+                DeepMpc("./dest.png", self.cam.get_cam_int()),
+                self.cam_to_gt_R,
+                max_speed=0.7,
+            )
 
         elif self.controller_type == "ours":
             from controllers.rtvs import Ours, OursController
@@ -181,7 +204,7 @@ class URRobotGym:
                 self.conveyor_level,
                 self._ee_pos_scale,
                 IBVSHelper(
-                    "./dest.png", self.cam.get_cam_int(), {"lambda": 0.4}, self.gui
+                    "./dest.png", self.cam.get_cam_int(), {"lambda": 0.000000000000001}, self.gui
                 ),
                 self.cam_to_gt_R,
             )
@@ -272,8 +295,7 @@ class URRobotGym:
         #     rgba=self.box.color,
         #     base_ori=euler2quat(self.box.init_ori),
         # )
-        self.box_id = p.loadURDF(
-            os.path.join(ycb_objects.getDataPath(), "YcbChipsCan", "model.urdf"),
+        self.box_id = p.loadURDF("3822/mobility.urdf",
             basePosition=self.box.init_pos,
             baseOrientation=euler2quat(self.box.init_ori),
             globalScaling=0.5,
@@ -399,6 +421,7 @@ class URRobotGym:
             )
         else:
             self.cam.set_cam_ext(pos=self.cam_pos, ori=self.cam_ori)
+            self.cam2.set_cam_ext(pos=self.cam_pos, ori=self.cam_ori2)
 
         cam_eye = self.cam_pos
         cam_dir = cam_eye + self.cam_to_gt_R.apply([0, 0, 0.1])
@@ -406,6 +429,18 @@ class URRobotGym:
         rgb, depth, seg = self.cam.get_images(
             get_rgb, get_depth, get_seg, shadow=0, lightDirection=[0, 0, 2]
         )
+        cam_eye2 = self.cam_pos
+        cam_dir2 = cam_eye2 + self.cam_to_gt_R2.apply([0, 0, 0.1])
+        p.addUserDebugLine(cam_dir2, cam_eye2, [0, 1, 0], 3, 0.5)
+        rgb2, depth2, seg2 = self.cam2.get_images(
+            get_rgb, get_depth, get_seg, shadow=0, lightDirection=[0, 0, 2]
+        )
+        # print(rgb2)
+        
+        Image.fromarray(rgb2).save("../results/" + str(self.time_cam2) + ".png")
+        # Image.fromarray(depth2).save("../results/depth_" + str(self.time_cam2) + ".png")
+        # Image.fromarray(seg2).save("../results/seg_" + str(self.time_cam2) + ".png")
+        self.time_cam2 = self.time_cam2 + 1
         if noise is not None:
             depth *= np.random.normal(loc=1, scale=noise, size=depth.shape)
         return rgb, depth, seg, cam_eye
@@ -429,6 +464,7 @@ class URRobotGym:
             "action": [],
             "t": [],
             "err": [],
+            "mse": [],
             "cam_eye": [],
             "joint_vel": [],
             "images": {
@@ -505,6 +541,7 @@ class URRobotGym:
                 "cur_t": self.sim_time,
                 "ee_pos": self.ee_pos,
             }
+            
             if self.controller_type == "gt":
                 observations["obj_pos"] = self.obj_pos
                 observations["belt_vel"] = self.belt.vel
@@ -513,6 +550,10 @@ class URRobotGym:
                 observations["rgb_img"] = rgb
                 observations["depth_img"] = depth
             elif self.controller_type == "rtvs":
+                observations["rgb_img"] = rgb
+                observations["depth_img"] = depth
+                observations["prev_rgb_img"] = self.prev_rgb
+            elif self.controller_type == "deepmpc":
                 observations["rgb_img"] = rgb
                 observations["depth_img"] = depth
                 observations["prev_rgb_img"] = self.prev_rgb
@@ -525,7 +566,16 @@ class URRobotGym:
             if self.flowdepth:
                 observations.pop("depth_img")
 
-            action, err = self.controller.get_action(observations)
+            if self.controller_type == "ibvs":
+                action, err, mse = self.controller.get_action(observations)
+            elif self.controller_type == "gt":
+                action, err = self.controller.get_action(observations)
+                mse = err
+            else:
+                action, error, mse= self.controller.get_action(observations)
+                err = error[0]
+            
+            
             if not grasping and self.controller.ready_to_grasp:
                 logger.debug("Grasping start")
                 pre_grasping_height = self.obj_pos[2]
@@ -533,12 +583,14 @@ class URRobotGym:
                 total_sim_time = self.sim_time + self.post_grasp_duration
                 self.grasp_time = self.sim_time
                 state["grasp_time"] = self.sim_time
-            multi_add_to_state((action, "action"), (err, "err"))
+            multi_add_to_state((action, "action"), (err, "err"), (mse, "mse"), (self.ee_pos, "ee_pos"))
             logger.info(time=self.sim_time, action=action)
             logger.info(ee_pos=self.ee_pos, obj_pos=self.obj_pos)
             logger.info(
                 dist=np.round(np.linalg.norm(self.ee_pos - self.obj_pos), 3),
                 iou_err=err,
+                mse_err=mse,
+                ee_pos=self.ee_pos
             )
             self._control_belt_motion()
             self.step(action)
@@ -573,7 +625,7 @@ def main():
         type=str,
         default="gt",
         help="controller",
-        choices=["gt", "rtvs", "ibvs", "ours"],
+        choices=["gt", "rtvs", "ibvs", "ours", "deepmpc"],
     )
     parser.add_argument("--random", action="store_true")
     parser.add_argument("--gui", action="store_true", help="show gui")
@@ -587,8 +639,8 @@ def main():
     if args.seed is not None:
         np.random.seed(args.seed)
 
-    # init_cfg = ([0.45, -0.05, 0.851], [0, 0, 0])
-    init_cfg = [[0.45, -0.05, 0.851], [-0.01, 0.03, 0]]
+    init_cfg = ([0.45, -0.05, 0.851], [0, 0, 0])
+    # init_cfg = [[0.45, -0.05, 0.851], [-0.01, 0.03, 0]]
     if args.random:
         init_cfg[1] = get_random_config()[1]
 

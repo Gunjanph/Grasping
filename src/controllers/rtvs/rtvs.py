@@ -51,7 +51,7 @@ class Rtvs(BaseRtvs):
 
         self.cnt = 0 if not hasattr(self, "cnt") else self.cnt + 1
         obj_mask = self.detect_mask(img_src, ((50, 100, 100), (70, 255, 255)))
-        iou_score = self.get_iou(img_src)
+        iou_score, mse = self.get_iou(img_src)
         obj_mask = obj_mask[::ct, ::ct]
         f12 = flow_utils.flow_calculate(img_src, img_goal)[::ct, ::ct]
         f12 = f12 * obj_mask
@@ -106,7 +106,7 @@ class Rtvs(BaseRtvs):
         # vel[1] *= -1
         # vel[2] *= -1
 
-        return vel, iou_score
+        return vel, iou_score, loss.item() ** 0.5
 
 
 def get_interaction_data(d1, ct, cam_k):

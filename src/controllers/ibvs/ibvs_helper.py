@@ -4,10 +4,15 @@ from utils.logger import logger
 
 
 def detect_corners(rgb_img):
-    hsv_image = cv2.cvtColor(rgb_img, cv2.COLOR_RGB2HSV)
+    # cv2.imwrite("before.jpg", rgb_img)
+    hsv_image = cv2.cvtColor(rgb_img, cv2.COLOR_BGR2HSV)
+    # print(hsv_image)
+    # cv2.imwrite("after.jpg", hsv_image)
     # segment red colour from image
-    mask = cv2.inRange(hsv_image, (0, 100, 100), (10, 255, 255))
+    mask = cv2.inRange(hsv_image, (20, 0, 0), (86, 255, 255))
+    # cv2.imwrite("mask.jpg", mask)
     whites = np.argwhere(mask == 255).tolist()
+    # print(whites)
     if not whites:
         return None
     top_left = min(whites)
@@ -30,13 +35,20 @@ def approach_depth(depth_img, corners):
     logger.info(f"Approach depth: {ap_depth}")
     return ap_depth
 
+def detect_mask(rgb_img, pixrange=((0, 100, 100), (10, 255, 255))):
+    hsv_image = cv2.cvtColor(rgb_img, cv2.COLOR_BGR2HSV)
+    # segment red colour from image
+    mask = cv2.inRange(hsv_image, *pixrange)
+    mask[mask != 0] = 1
+    return mask.reshape((rgb_img.shape[0], rgb_img.shape[1], 1))
+
 
 class IBVSHelper:
     def __init__(
-        self, target_image_file, cam_k, lm_params={}, show_corners_window=True
+        self, target_image_file, cam_k, lm_params={}, show_corners_window=False
     ):
-        lm_params.setdefault("mu", 0.01)
-        lm_params.setdefault("lambda", 0.01)
+        lm_params.setdefault("mu", 0.000000000001)
+        lm_params.setdefault("lambda", 0.00000000001)
         target_image = cv2.imread(target_image_file)
         target_image = cv2.cvtColor(target_image, cv2.COLOR_BGR2RGB)
         self.target_image = target_image
@@ -117,4 +129,12 @@ class IBVSHelper:
         v = self.mult_mat(self._get_L(depth_image)) @ e
         self.lmda *= self.lmda_multiplier
         v = v[:3]
-        return v, np.linalg.norm(e)
+        
+        # IOU error 
+        mask_src = detect_mask(current_image, ((20, 0, 0), (86, 255, 255)))
+        mask_goal = detect_mask(self.target_image, ((20, 0, 0), (86, 255, 255)))
+        intersection = np.logical_and(mask_src, mask_goal)
+        union = np.logical_or(mask_src, mask_goal)
+        iou_score = np.sum(intersection) / (np.sum(union) + 0.001)
+        
+        return v, iou_score, np.linalg.norm(e)

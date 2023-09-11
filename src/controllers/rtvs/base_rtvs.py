@@ -60,4 +60,11 @@ class BaseRtvs:
         intersection = np.logical_and(mask_src, mask_goal)
         union = np.logical_or(mask_src, mask_goal)
         iou_score = np.sum(intersection) / (np.sum(union) + 0.001)
-        return iou_score
+        
+        if len(img_src.shape) == 3:
+            image1 = cv2.cvtColor(img_src, cv2.COLOR_RGB2GRAY)
+        if len(self.img_goal.shape) == 3:
+            image2 = cv2.cvtColor(self.img_goal, cv2.COLOR_RGB2GRAY)
+        mse = np.mean((image1 - image2) ** 2)
+        # return mse
+        return iou_score, mse

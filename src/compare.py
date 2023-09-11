@@ -10,21 +10,23 @@ def task(mixed_arg):
     from sim import simulate
     args, controller, queue = mixed_arg
     init_cfg = args.init_cfg
+    print(init_cfg)
+    print(controller)
     sim_data = simulate(
             init_cfg, False, controller, flowdepth=args.flowdepth
         )
     if args.video:
         os.system("./mkvideo.sh")
-        os.system("mv video.mp4 ../results/video_{}.mp4".format(controller))
+        os.system("mv new_video.mp4 ../results/video_{}.mp4".format(controller))
         os.system(
-            "mv video_flow.mp4 ../results/video_flow_{}.mp4".format(controller)
+            "mv new_video_flow.mp4 ../results/video_flow_{}.mp4".format(controller)
         )
     queue.put(sim_data)
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "-c", "--controllers", nargs="+", type=str, default=["rtvs", "ours"]
+        "-c", "--controllers", nargs="+", type=str, default=["deepmpc", "rtvs", "ours"]
     )
     parser.add_argument("-v", "--video", action="store_true")
     parser.add_argument("-r", "--random", action="store_true")
@@ -32,7 +34,7 @@ def main():
     parser.add_argument("--flowdepth", action="store_true")
     args = parser.parse_args()
 
-    init_cfg = [[0.45, -0.05, 0.851], [-0.01, 0.03, 0]]
+    init_cfg = [[0.45, -0.05, 0.851], [-0.03, 0.03, 0]]
     if args.seed is not None:
         np.random.seed(args.seed)
 

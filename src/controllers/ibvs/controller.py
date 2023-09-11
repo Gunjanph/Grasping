@@ -30,7 +30,7 @@ class IBVSController(Controller):
 
 
     def _get_ee_val(self, rgb_img, depth_img):
-        ee_vel_cam, err = self.ibvs_helper.get_velocity(rgb_img, depth_img)
+        ee_vel_cam, err, iou = self.ibvs_helper.get_velocity(rgb_img, depth_img)
         ee_vel_gt = self.cam_to_gt_R.apply(ee_vel_cam)
         speed = min(self.max_speed, np.linalg.norm(ee_vel_gt))
         vel = ee_vel_gt * (
@@ -41,7 +41,7 @@ class IBVSController(Controller):
             self.ready_to_grasp = True
 
         logger.debug(pred_vel=vel, pred_speed=np.linalg.norm(vel), err=err)
-        return vel
+        return vel, iou
 
     def get_action(self, observations:dict):
         rgb_img = observations["rgb_img"]
@@ -50,9 +50,10 @@ class IBVSController(Controller):
         depth_img = observations["depth_img"]
         action = np.zeros(5)
         self.err = 0
+        iou = 0
         if cur_t <= self.grasp_time and not self.ready_to_grasp:
             action[4] = -1
-            action[:3] = self._get_ee_val(rgb_img, depth_img)
+            action[:3], iou = self._get_ee_val(rgb_img, depth_img)
             if cur_t <= 0.6 * self.grasp_time:
                 tpos = self._action_vel_to_target_pos(action[:3], ee_pos)
                 tpos[2] = max(tpos[2], self.conveyor_level + self.box_size[2] + 0.005)
@@ -65,4 +66,4 @@ class IBVSController(Controller):
                 action[:3] = [0, 0, 0.5]
             else:
                 action[:3] = self.post_grasp_dest - ee_pos
-        return action, self.err
+        return action, iou, self.err

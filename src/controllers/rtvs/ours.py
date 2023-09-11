@@ -46,7 +46,7 @@ class Ours(BaseRtvs):
         # elif photo_error_val < 3000:
         #     self.horizon = 6
 
-        iou_score = self.get_iou(img_src)
+        iou_score, mse = self.get_iou(img_src)
         self.cnt = 0 if not hasattr(self, "cnt") else self.cnt + 1
         obj_mask = self.detect_mask(img_src, ((50, 100, 100), (70, 255, 255)))[
             ::ct, ::ct
@@ -105,7 +105,7 @@ class Ours(BaseRtvs):
 
         vel = vs_lstm.v_interm[0].detach().cpu().numpy()
         logger.info(RAW_OUR_VELOCITY=vel)
-        return vel, iou_score
+        return vel, iou_score, loss.item()**0.5
 
 
 def get_interaction_data(d1, ct, cam_k, obj_vel):

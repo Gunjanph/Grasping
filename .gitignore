@@ -154,3 +154,17 @@ logs/
 logs
 src/imgs
 data/FlowNet2_checkpoint.pth.tar
+results/
+results/*
+src/3822
+src/6493
+*.mp4
+src/video_flow_stat.mp4
+src/video_stat.mp4
+src/output_video.mp4
+src/output.mp4
+src/ChipsCan/video_stat.mp4
+data/ycb_objects/
+data/ycb_objects/*
+src/ycb_objects/
+src/ycb_objects/*

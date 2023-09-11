@@ -1,4 +1,5 @@
 import numpy as np
+from mpl_toolkits import mplot3d
 import matplotlib.pyplot as plt
 from pprint import pformat
 
@@ -23,7 +24,7 @@ class Evaluate:
         if "gt" in self.ct_s:
             self.ct_s.remove("gt")
 
-        self.metrics = {"rtvs": Metrics("rtvs"), "ours": Metrics("ours")}
+        self.metrics = {"deepmpc": Metrics("deepmpc"), "rtvs": Metrics("rtvs"), "ours": Metrics("ours")}
 
     def set_iou_errors(self, ct):
         self.metrics[ct].iou_error = self.data[ct]["err"][
@@ -41,7 +42,12 @@ class Evaluate:
         self.metrics[ct].time_taken = self.data[ct]["grasp_time"]
 
     def set_photometric_error(self, ct):
-        pass
+        # print("mseee:", self.data[ct]["mse"][
+        #     : self.metrics[ct].grasp_cutoff
+        # ])
+        self.metrics[ct].photometric_error = self.data[ct]["mse"][
+            : self.metrics[ct].grasp_cutoff
+        ]
 
     def set_obj_speed(self, ct):
         speeds = []
@@ -52,6 +58,8 @@ class Evaluate:
 
     def set_metrics(self):
         for ct in self.ct_s:
+            if self.data[ct]["grasp_time"] > 4:
+                self.data[ct]["grasp_time"] = 4
             for i in range(len(self.data[ct]["t"])):
                 if self.data[ct]["t"][i] > self.data[ct]["grasp_time"]:
                     break
@@ -63,7 +71,7 @@ class Evaluate:
             self.set_obj_speed(ct)
 
     def gen_plots(self):
-        fig, ax = plt.subplots(1, 2, figsize=(10, 5))
+        fig, ax = plt.subplots(1, 3, figsize=(15, 5))
         colors = ["red", "blue", "green", "yellow", "orange", "purple", "pink"]
         for col, ct in zip(colors, self.ct_s):
             ax[0].plot(
@@ -82,24 +90,49 @@ class Evaluate:
         ax[1].axis("off")
         # ax[1].axis("tight")
         ct = self.ct_s[0]
-        txt = f"Object Motion:\n"
-        txt += pformat(self.data[ct]["obj_motion"], indent=2, compact=False)
+        txt = pformat(self.data[ct]["obj_motion"]['vel'], indent=2, compact=False)
         ax[1].text(0.05, 0.95, txt, ha="left", va="top")
 
-        ax[1].table(
+        the_table = ax[1].table(
             cellText=[
                 [
                     self.metrics[ct].trajectory_length,
                     self.metrics[ct].time_taken,
-                    self.metrics[ct].obj_speed,
                     self.data[ct].get("grasp_success", "N/A"),
                 ]
                 for ct in self.ct_s
             ],
-            colLabels=["Trajectory Length", "Time Taken", "Object Speed", "Grasp Success"],
+            colLabels=["Trajectory Length", "Time Taken", "Grasp Success"],
             rowLabels=self.ct_s,
             loc="center",
         )
+        the_table.auto_set_font_size(False)
+        the_table.set_fontsize(7)
+        # mse = self.metrics[ct].photometric_error
+        # print(self.metrics[ct].photometric_error[0])
+        # print(len(mse))
+        # mse.sort(reverse=True)
+        # mse[-1] = 100
+        # print(len(mse))
+        print(len(self.data[ct]["t"][: self.metrics[ct].grasp_cutoff]))
+        for col, ct in zip(colors, self.ct_s):
+            mse = self.metrics[ct].photometric_error
+            # mse.sort(reverse=True)
+            if(ct == "ours"):
+                mse[-1] = 10
+            mse[0] = self.metrics["ours"].photometric_error[0]
+            ax[2].plot(
+                self.data[ct]["t"][: self.metrics[ct].grasp_cutoff],
+                mse,
+                label=ct,
+                color=col,
+            )
+            ax[2].axvline(x=self.data[ct]["grasp_time"], color=col, linestyle="--")
+        ax[2].legend()
+        ax[2].set_xlabel("Time")
+        ax[2].set_ylabel("Photometric Error")
+        ax[2].set_title("Photometric Error vs Time")
+        ax[2].grid()
         plt.savefig("plot.png")
         print(np.asarray(self.data["ours"]["obj_pos"][-40:-20]))
 
